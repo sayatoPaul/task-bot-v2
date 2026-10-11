@@ -4,8 +4,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, FSInputFile
 from aiogram.filters import Command
 
-TOKEN = "7931429720:AAHR_3wwS16YHjZe9Uvt-5sjKEsgDQzpSEE"
-
+from config import TOKEN 
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
@@ -55,17 +54,21 @@ reply_markup=keyboard)
 async def list_handler(message: Message):
     user_id = message.from_user.id
     response = requests.get('http://localhost:8000/tasks', params={"user_id": user_id})
-    data = response.json()
-    if not data:
+    tasks = response.json() # data
+
+    if not tasks:
         await message.answer('У тебя нет задач')
         return
+    
     text = ''
-    for task in data:
+
+    for i,task in enumerate(tasks):
         if task[3] == 1:
             status = '✅'
         else:
             status = '🚫'
-        text += f'{status}| primary key: {task[0]} | {task[2]}\n'
+        text += f'{status}| {i + 1}. {task[2]}\n'
+
     await message.answer(f'Твои задачи: \n\n{text}')
 
 @dp.message(Command('help'))
@@ -139,7 +142,7 @@ async def add_handler(message: Message):
     if response.status_code == 200:
         await message.answer('Успешно братуха')
 
-@dp.message(Command('done'))
+@dp.message(Command('done')) # нвд этой функцией еще будет ворк, не рассматривать ее
 async def done_handler(message: Message):
     parts = message.text.split()
 
@@ -150,27 +153,41 @@ async def done_handler(message: Message):
     user_id = message.from_user.id
     task_id = parts[1]
     
-    response = requests.put(f"http://localhost:8000/tasks/{task_id}",
-    params={"done": 1, "user_id": user_id})
+    response = requests.put(f"http://localhost:8000/tasks/{task_id}", params={"done": 1, "user_id": user_id})
     
     await message.answer(f"Задача {task_id} отмечена выполненной!")
 
 # /delete id — бот удаляет через backend
 @dp.message(Command('delete'))
 async def delete_handler(message: Message):
+    # делим сообщение пользователя
     parts = message.text.split()
+    # проверяем чтобы кол-во было не менее 2
     if len(parts) < 2:
         await message.answer("Используй: /delete id")
         return
-    
-    task_id = parts[1]
+    # проверка + берем айдишник сообщения (но он пока грязный)
+    try:
+        num = int(parts[1])
+    except ValueError:
+        await message.answer('Ввведи номер!')
+        return
+    # берем данные
     user_id = message.from_user.id
-    
-    response = requests.delete(
-        f"http://localhost:8000/tasks/{task_id}", params={"user_id": user_id}
-    )
-    
-    await message.answer(f"Задача {task_id} удалена!")
+    response = requests.get('http://localhost:8000/tasks', params={"user_id": user_id})
+    tasks = response.json() # настоящие задачи пользователя (праймеры кеи настоящие)
+    # проверка что корректное чилсо
+    if num < 1 or num > len(tasks):
+        await message.answer('Неправильный номер задачи.')
+        return
+
+    task_id = tasks[num - 1][0]
+    try:
+        response = requests.delete(f"http://localhost:8000/tasks/{task_id}", params={"user_id": user_id})
+        await message.answer(f"Задача {num} удалена!")
+    except:
+        await message.answer('Ваще хз что произошло, пацык')
+        return
 
 async def main():
     print("Бот запущен!")
