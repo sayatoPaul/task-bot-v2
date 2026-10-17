@@ -1,7 +1,7 @@
 import asyncio
 import requests
 from aiogram import Bot, Dispatcher
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, FSInputFile
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 
 from config import TOKEN 
@@ -9,14 +9,16 @@ from config import TOKEN
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+user_states = {} # режим состояния (создание)
+
 @dp.message(Command('start'))
 async def start_handler(message: Message):
     # вывод кнопок снизу
     keyboard = ReplyKeyboardMarkup (
         keyboard=[
-            [KeyboardButton(text='Перезапустить бота')],
-            [KeyboardButton(text='Показать список')],
-            [KeyboardButton(text='Инструкция')],
+            # [KeyboardButton(text='Перезапустить бота')],
+            [KeyboardButton(text='Список задач')],
+            [KeyboardButton(text='Команды')],
             [KeyboardButton(text='Мой профиль')]
         ],
         resize_keyboard=True
@@ -24,27 +26,34 @@ async def start_handler(message: Message):
 
     # привествие
     first_name = message.from_user.first_name
-    try:
-        start_photo = 'https://i.pinimg.com/1200x/b8/d7/a0/b8d7a04e63e7f25ecb9a572ddc9cb464.jpg'
-    except:
-        start_photo = FSInputFile('start_Mark_photo.jpg')
-    await message.answer_photo(start_photo,
-caption=f'''
+    caption = f'''
 <b>Привет, {first_name}! </b>\n
 Это — бот задачник с полноценной базой данных! <i>Короче тут пока очень сырая темка. Я тестирую бота привязанного к бекенду.</i> ладно, короче, вот команды:
-- `/start` Запустить бота
-- `/user` показывает твой id`шник и имя
-- `/add задача` сохраняет задачу с ID пользователя в бд
-- `/list` показывает только задачи этого пользователя.
-- `/done id` пометить что-то верным
-- `/delete id` удалить задачу по номеру.\n
+• `/start` Запустить бота
+• `/list` показывает только задачи этого пользователя.
+• `/add задача` сохраняет задачу с ID пользователя в бд
+• `/edit id` изменить задачу по номеру
+• `/delete id` удалить задачу по номеру
+• `/user` показывает твой id`шник и имя\n
 Для удобства созданы ниже кнопки для работы с ботом. Команды и кнопки работают вместе. Поддержки или менеджера здесь нет поэтому звонить и жаловаться вам не кому.\n
 <b>Нужна инструкция?</b>
 Команда `/help` или кнопка ниже.
-''',
-parse_mode="HTML",
-reply_markup=keyboard)
+'''
 
+    try:
+        start_photo = 'https://i.pinimg.com/1200x/b8/d7/a0/b8d7a04e63e7f25ecb9a572ddc9cb464.jpg'
+        await message.answer_photo(start_photo,
+        caption=caption,
+        parse_mode="HTML",
+        reply_markup=keyboard
+        )
+    except:
+        start_photo = FSInputFile('start_Mark_photo.jpg')
+        await message.answer_photo(start_photo,
+        caption=caption,
+        parse_mode="HTML",
+        reply_markup=keyboard
+        )
 
 # ===================================================================================
 # КОМАНДЫ /list, /help, /profile
@@ -69,30 +78,48 @@ async def list_handler(message: Message):
             status = '🚫'
         text += f'{status}| {i + 1}. {task[2]}\n'
 
-    await message.answer(f'Твои задачи: \n\n{text}')
+    await message.answer(f'<b>Твои задачи:</b>\n\n{text}', parse_mode='HTML')
 
 @dp.message(Command('help'))
 async def help_handler(message: Message):
     await message.answer('''
-<b>Инструкция:</b>
-- `/start` Запустить бота
-- `/user` показывает твой id`шник и имя
-- `/add задача` сохраняет задачу с ID пользователя в бд
-- `/list` показывает только задачи этого пользователя.
-- `/done id` пометить что-то верным
-- `/delete id` удалить задачу по номеру.
+<b>Инструкция:</b>\n
+• `/start` Запустить бота
+• `/list` показывает только задачи этого пользователя.
+• `/add задача` сохраняет задачу с ID пользователя в бд
+• `/edit id` изменить задачу по номеру
+• `/delete id` удалить задачу по номеру
+• `/user` показывает твой id`шник и имя
 ''', parse_mode='HTML')
+    
 @dp.message(Command('user'))
 async def user_handler(message: Message):
     user_id = message.from_user.id
     user_first_name = message.from_user.first_name
     username = message.from_user.username
     user_photos = await bot.get_user_profile_photos(user_id)
+    yes_amount = 0
+    no_amount = 0
+
+    response = requests.get(
+        f'http://localhost:8000/tasks',
+        params={'user_id': user_id}
+    )
+    tasks = response.json()
+    for task in tasks:
+        if task[3] == 0:
+            no_amount += 1
+        elif task[3] == 1:
+            yes_amount += 1
 
     text = f'''<b>Твой профиль</b>\n
-- Твой личный id на платформе: {user_id}
-- Твое имя: {user_first_name}
-- Твой username: @{username}'''
+<b>Информация на платформе:</b>\n
+• 📋 Количество твоих задач: {len(tasks)}
+• ✅ Количество выполненых: {yes_amount}
+• Твой личный id на платформе: {user_id}\n
+Твое имя: {user_first_name}
+Твой username: @{username}'''
+    
 
     if user_photos.total_count == 0:
         await message.answer(text, parse_mode="HTML")
@@ -112,11 +139,11 @@ async def user_handler(message: Message):
 async def start_button(message: Message):
     await start_handler(message)
 
-@dp.message(lambda message: message.text == 'Показать список')
+@dp.message(lambda message: message.text == 'Список задач')
 async def list_button(message:Message):
     await list_handler(message)
 
-@dp.message(lambda message: message.text == 'Инструкция')
+@dp.message(lambda message: message.text == 'Команды')
 async def help_button(message: Message):
     await help_handler(message)
 
@@ -126,6 +153,26 @@ async def user_button(message: Message):
 
 # ===================================================================================
 # ===================================================================================
+
+@dp.message(Command('list_developer'))
+async def list_handler_developer(message: Message):
+    response = requests.get('http://localhost:8000/tasks/developer')
+    tasks = response.json() # data
+
+    if not tasks:
+        await message.answer('У тебя нет задач')
+        return
+    
+    text = ''
+
+    for i,task in enumerate(tasks):
+        if task[3] == 1:
+            status = '✅'
+        else:
+            status = '🚫'
+        text += f'{status}| primary key: {task[0]} | user_id: {task[1]} | number: {i + 1} | {task[2]}\n'
+
+    await message.answer(f'<b>Твои задачи:</b>\n\n{text}', parse_mode='HTML')
 
 @dp.message(Command('add'))
 async def add_handler(message: Message):
@@ -142,20 +189,92 @@ async def add_handler(message: Message):
     if response.status_code == 200:
         await message.answer('Успешно братуха')
 
-@dp.message(Command('done')) # нвд этой функцией еще будет ворк, не рассматривать ее
+@dp.message(Command('edit')) # 
 async def done_handler(message: Message):
+    # делим на парты
     parts = message.text.split()
-
+    # проверяем чтобы партов было не менее двух
     if len(parts) < 2:
-        await message.answer("Используй: /done id")
+        await message.answer("Используй: /edit id")
+        return
+    # проверка + берем грязный айдишник
+    try:
+        num = int(parts[1])
+    except ValueError:
+        await message.answer('Введи номер!')
+        return
+    # получаем данные
+    user_id = message.from_user.id
+    response = requests.get(f'http://localhost:8000/tasks', params={'user_id': user_id})
+    tasks = response.json()
+    # проверка что корректное (типо не меньше 1 и находится в промежутке кол-ве задач типа)
+    if num < 1 or num > len(tasks):
+        await message.answer('Неправильный номер задачи')
         return
 
-    user_id = message.from_user.id
-    task_id = parts[1]
-    
-    response = requests.put(f"http://localhost:8000/tasks/{task_id}", params={"done": 1, "user_id": user_id})
-    
-    await message.answer(f"Задача {task_id} отмечена выполненной!")
+    task = tasks[num - 1]
+    task_id = task[0] # РЕАЛЬНЫЙ номер задачи получили 
+    if task[3] == 0:
+        status = '🚫 Не выполнено'
+    else: 
+        status = '✅ Выполнено'
+
+    #готовим менюшку
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text='Изменить статус', callback_data=f'edit_status_{task_id}')],
+            [InlineKeyboardButton(text='Изменить задачу', callback_data=f'edit_text_{task_id}')]
+        ]
+    )
+    await message.answer(f'''
+Изменение задачи по выбору. \n
+Задача: {task[2]}
+Статус: {status}
+
+Выберите действие: 
+''', reply_markup=keyboard)
+
+# Обработка — через callback_query
+@dp.callback_query()
+async def callback_handler(callback):
+    # получаем
+    data = callback.data
+
+    # разбираем
+    parts = data.split('_') # изначальный формат 'edit_status_{task_id}'
+    action = parts[0] # "edit" или "status" в случае если был сначала "edit" и мод "статус"
+    mode = parts[1] # "text" или "status" / "1" "0"
+    task_id = int(parts[2])
+
+    if action == 'edit':
+
+        if mode == 'status':
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                   [InlineKeyboardButton(text='✅', callback_data=f'status_1_{task_id}')],
+                    [InlineKeyboardButton(text='🚫', callback_data=f'status_0_{task_id}')]
+            ]
+            )
+            await callback.message.answer('Выбери действие:', reply_markup=keyboard)
+
+        elif mode == 'text':
+            user_states[callback.from_user.id] = {
+                'action': "edit_text",
+                "task_id": task_id
+            }
+            await callback.message.answer('Введи новый текст задачи:')
+
+    elif action == 'status':
+        done = int(mode) # так как если action статус то предпологается что там будет еще одна часть с номером
+        requests.put(
+            f'http://localhost:8000/tasks/{task_id}',
+            params={'done': done, 'user_id': callback.from_user.id}
+        )
+        if done == 1:
+            status = '✅'
+        elif done == 0:
+            status = '🚫'
+        await callback.message.answer(f'Отметка задачи была поменена: {status}')
 
 # /delete id — бот удаляет через backend
 @dp.message(Command('delete'))
@@ -188,6 +307,29 @@ async def delete_handler(message: Message):
     except:
         await message.answer('Ваще хз что произошло, пацык')
         return
+
+@dp.message()
+async def state_handler(message: Message):
+    user_id = message.from_user.id
+
+    if user_id in user_states:
+        state = user_states[user_id] # есть некий список который создался еще в обработке кнопок.
+
+        if state['action'] == 'edit_text':
+            new_text = message.text
+            task_id = state['task_id']
+
+            requests.put(
+                f'http://localhost:8000/tasks/{task_id}/text',
+                params={'task': new_text, 'user_id': user_id}
+            )
+
+            await message.answer('Текст задачи изменен!')
+
+            # убрать состояние к чертям
+            del user_states[user_id]
+            return
+    await message.answer(message.text)
 
 async def main():
     print("Бот запущен!")

@@ -19,6 +19,18 @@ def init_db():
 
 init_db() # сам по себе при запуске
 
+# endpoint 0. Команда девелопера
+@app.get('/tasks/developer')
+def get_tasks_d():
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+
+    cursor.execute('SELECT * FROM tasks')
+    tasks = cursor.fetchall()
+
+    conn.close()
+    return tasks
+
 # endpoint 1 — GET /tasks (все задачи)
 @app.get('/tasks')
 def get_tasks(user_id: int):
@@ -46,7 +58,7 @@ def create_task(task: str, user_id: int):
 
 # endpoint 3 — POST /tasks{task_id} (изменить)
 @app.put('/tasks/{task_id}')
-def edit_task(task_id: int, user_id: int, done: int):
+def edit_task_status(task_id: int, user_id: int, done: int):
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
 
@@ -55,6 +67,17 @@ def edit_task(task_id: int, user_id: int, done: int):
     conn.commit()
     conn.close()
     return {"status": "updated", "task_id": task_id}
+
+@app.put('/tasks/{task_id}/text')
+def edit_task_text(task_id: int, user_id: int, task: str):
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+
+    cursor.execute('UPDATE tasks SET task = ? WHERE id = ? AND user_id = ?', (task, task_id, user_id))
+
+    conn.commit()
+    conn.close()
+    return {'status': "updated", "task_id": task_id}
 
 # ENDPOINT №4 — DELETE /tasks/{task_id} (удалить)
 @app.delete('/tasks/{task_id}')
