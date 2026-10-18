@@ -55,6 +55,75 @@ async def start_handler(message: Message):
         reply_markup=keyboard
         )
 
+
+# ===================================================================================
+# ВСПОМОГАТЕЛЬНОЕ
+# ===================================================================================
+
+def get_tasks(user_id): #обращение к бэкенду как requests.get('.../tasks', params={...}). 
+    # возравщает либо json либо None
+    try:
+        respone = requests.get(
+            'http://localhost:8000/tasks',
+            params={'user_id': user_id},
+            timeout=5
+        )
+        if respone.status_code == 200:
+            return respone.json()
+        else:
+            print(f'Ошибка при запросе к backend: {respone.status_code}') # вывести в терминал
+            return None
+    except (requests.ConnectionError, requests.Timeout):
+        return None
+
+def add_task(user_id, task):
+    """Добавить задачу. Возвращает True/False."""
+    try:
+        response = requests.post(
+            'http://localhost:8000/tasks',
+            params={'task': task, 'user_id': user_id},
+            timeout=5
+        )
+        return response.status_code == 200
+    except (requests.ConnectionError, requests.Timeout):
+        return False
+
+def delete_task(task_id, user_id):
+    """Удалить задачу. Возвращает True/False."""
+    try:
+        response = requests.delete(
+            f'http://localhost:8000/tasks/{task_id}',
+            params={'user_id': user_id},
+            timeout=5
+        )
+        return response.status_code == 200
+    except (requests.ConnectionError, requests.Timeout):
+        return False
+
+def update_status(task_id, user_id, done):
+    """Изменить статус. Возвращает True/False."""
+    try:
+        response = requests.put(
+            f'http://localhost:8000/tasks/{task_id}',
+            params={'done': done, 'user_id': user_id},
+            timeout=5
+        )
+        return response.status_code == 200
+    except (requests.ConnectionError, requests.Timeout):
+        return False
+
+def update_text(task_id, user_id, new_text):
+    """Изменить текст. Возвращает True/False."""
+    try:
+        response = requests.put(
+            f'http://localhost:8000/tasks/{task_id}/text',
+            params={'task': new_text, 'user_id': user_id},
+            timeout=5
+        )
+        return response.status_code == 200
+    except (requests.ConnectionError, requests.Timeout):
+        return False
+
 # ===================================================================================
 # КОМАНДЫ /list, /help, /profile
 # ===================================================================================
@@ -62,8 +131,11 @@ async def start_handler(message: Message):
 @dp.message(Command('list'))
 async def list_handler(message: Message):
     user_id = message.from_user.id
-    response = requests.get('http://localhost:8000/tasks', params={"user_id": user_id})
-    tasks = response.json() # data
+    tasks = get_tasks(user_id)
+
+    if tasks is None:
+        await message.answer('Сервер недоступен. Попробуйте позже.')
+        return
 
     if not tasks:
         await message.answer('У тебя нет задач')
@@ -83,13 +155,15 @@ async def list_handler(message: Message):
 @dp.message(Command('help'))
 async def help_handler(message: Message):
     await message.answer('''
-<b>Инструкция:</b>\n
-• `/start` Запустить бота
+<b>Полные команды:</b>\n
+<b>Работа с задачами</b>
 • `/list` показывает только задачи этого пользователя.
 • `/add задача` сохраняет задачу с ID пользователя в бд
 • `/edit id` изменить задачу по номеру
-• `/delete id` удалить задачу по номеру
-• `/user` показывает твой id`шник и имя
+• `/delete id` удалить задачу по номеру\n
+<b>Личные команды</b>
+• `/start` запустить бота
+• `/user` увидеть профиль
 ''', parse_mode='HTML')
     
 @dp.message(Command('user'))
@@ -98,28 +172,30 @@ async def user_handler(message: Message):
     user_first_name = message.from_user.first_name
     username = message.from_user.username
     user_photos = await bot.get_user_profile_photos(user_id)
+    len_tasks = 0
     yes_amount = 0
     no_amount = 0
 
-    response = requests.get(
-        f'http://localhost:8000/tasks',
-        params={'user_id': user_id}
-    )
-    tasks = response.json()
-    for task in tasks:
-        if task[3] == 0:
-            no_amount += 1
-        elif task[3] == 1:
-            yes_amount += 1
+    tasks = get_tasks(user_id)
+    if tasks is None:
+        len_tasks = '<s>backend error</s>'
+        yes_amount = '<s>backend error</s>'
+        no_amount = '<s>backend error</s>'
+    else: 
+        len_tasks = len(tasks)
+        for task in tasks:
+            if task[3] == 0:
+                no_amount += 1
+            elif task[3] == 1:
+                yes_amount += 1
 
     text = f'''<b>Твой профиль</b>\n
 <b>Информация на платформе:</b>\n
-• 📋 Количество твоих задач: {len(tasks)}
+• 📋 Количество твоих задач: {len_tasks}
 • ✅ Количество выполненых: {yes_amount}
 • Твой личный id на платформе: {user_id}\n
 Твое имя: {user_first_name}
 Твой username: @{username}'''
-    
 
     if user_photos.total_count == 0:
         await message.answer(text, parse_mode="HTML")
@@ -156,11 +232,19 @@ async def user_button(message: Message):
 
 @dp.message(Command('list_developer'))
 async def list_handler_developer(message: Message):
-    response = requests.get('http://localhost:8000/tasks/developer')
-    tasks = response.json() # data
-
+    try: # тут использую ручную обработку а не функцией тк это не что то обычное.
+        response = requests.get('http://localhost:8000/tasks/developer')
+        if response.status_code == 200:
+            tasks = response.json()
+        else:
+            await message.answer(f"Ошибка сервера: {response.status_code}")
+            return
+    except requests.ConnectionError:
+        await message.answer("Сервер недоступен. Попробуй позже.")
+        return
+        
     if not tasks:
-        await message.answer('У тебя нет задач')
+        await message.answer('Задач нет в системе')
         return
     
     text = ''
@@ -183,11 +267,11 @@ async def add_handler(message: Message):
 
     user_id = message.from_user.id
     task = parts[1]
-    response = requests.post('http://localhost:8000/tasks', params={"task": task, "user_id": user_id})
-    data = response.json()
 
-    if response.status_code == 200:
+    if add_task(user_id, task):
         await message.answer('Успешно братуха')
+    else: 
+        await message.answer('Сервер не отвечает!')
 
 @dp.message(Command('edit')) # 
 async def done_handler(message: Message):
@@ -205,8 +289,10 @@ async def done_handler(message: Message):
         return
     # получаем данные
     user_id = message.from_user.id
-    response = requests.get(f'http://localhost:8000/tasks', params={'user_id': user_id})
-    tasks = response.json()
+    tasks = get_tasks(user_id)
+    if tasks is None:
+        await message.answer('Сервер не отвечает! Попробуйте позже.')
+        return
     # проверка что корректное (типо не меньше 1 и находится в промежутке кол-ве задач типа)
     if num < 1 or num > len(tasks):
         await message.answer('Неправильный номер задачи')
@@ -266,15 +352,14 @@ async def callback_handler(callback):
 
     elif action == 'status':
         done = int(mode) # так как если action статус то предпологается что там будет еще одна часть с номером
-        requests.put(
-            f'http://localhost:8000/tasks/{task_id}',
-            params={'done': done, 'user_id': callback.from_user.id}
-        )
-        if done == 1:
-            status = '✅'
-        elif done == 0:
-            status = '🚫'
-        await callback.message.answer(f'Отметка задачи была поменена: {status}')
+        if update_status(task_id, callback.from_user.id, done):
+            if done == 1:
+                status = '✅'
+            elif done == 0:
+                status = '🚫'
+            await callback.message.answer(f'Отметка задачи была поменена: {status}')
+        else: 
+            await callback.message.answer('Сервер не отвечает.')
 
 # /delete id — бот удаляет через backend
 @dp.message(Command('delete'))
@@ -293,20 +378,20 @@ async def delete_handler(message: Message):
         return
     # берем данные
     user_id = message.from_user.id
-    response = requests.get('http://localhost:8000/tasks', params={"user_id": user_id})
-    tasks = response.json() # настоящие задачи пользователя (праймеры кеи настоящие)
+    tasks = get_tasks(user_id) # настоящие задачи пользователя (праймеры кеи настоящие)
+    if tasks is None:
+        await message.answer('Сервер не отвечает! Попробуйте позже.')
+        return
     # проверка что корректное чилсо
     if num < 1 or num > len(tasks):
         await message.answer('Неправильный номер задачи.')
         return
 
     task_id = tasks[num - 1][0]
-    try:
-        response = requests.delete(f"http://localhost:8000/tasks/{task_id}", params={"user_id": user_id})
+    if delete_task(task_id, user_id):
         await message.answer(f"Задача {num} удалена!")
-    except:
-        await message.answer('Ваще хз что произошло, пацык')
-        return
+    else:
+        await message.answer('Сервер не отвечает.')
 
 @dp.message()
 async def state_handler(message: Message):
@@ -319,12 +404,10 @@ async def state_handler(message: Message):
             new_text = message.text
             task_id = state['task_id']
 
-            requests.put(
-                f'http://localhost:8000/tasks/{task_id}/text',
-                params={'task': new_text, 'user_id': user_id}
-            )
-
-            await message.answer('Текст задачи изменен!')
+            if update_text(task_id, user_id, new_text):
+                await message.answer('Текст задачи изменен!')
+            else:
+                await message.answer('Сервер не отвеает.')
 
             # убрать состояние к чертям
             del user_states[user_id]
