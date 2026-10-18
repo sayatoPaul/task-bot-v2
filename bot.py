@@ -11,6 +11,10 @@ dp = Dispatcher()
 
 user_states = {} # режим состояния (создание)
 
+# ===================================================================================
+# СТАРТОВАЯ КОМАНДА /start
+# ===================================================================================
+
 @dp.message(Command('start'))
 async def start_handler(message: Message):
     # вывод кнопок снизу
@@ -57,7 +61,7 @@ async def start_handler(message: Message):
 
 
 # ===================================================================================
-# ВСПОМОГАТЕЛЬНОЕ
+# ВСПОМОГАТЕЛЬНОЕ (ЗАПРОСЫ К BACKEND)
 # ===================================================================================
 
 def get_tasks(user_id): #обращение к бэкенду как requests.get('.../tasks', params={...}). 
@@ -125,6 +129,7 @@ def update_text(task_id, user_id, new_text):
         return response.status_code == 200
     except (requests.ConnectionError, requests.Timeout):
         return False
+
 
 # ===================================================================================
 # КОМАНДЫ /list, /help, /profile
@@ -210,7 +215,7 @@ async def user_handler(message: Message):
         )
 
 # ===================================================================================
-# РАБОТА ПО ТОМУ ЧТО ОПРЕДЕЛЯЕМ КНОПКИ "ПЕРЕЗАПУСТИТЬ БОТА", "ПОКАЗАТЬ СПИСОК", "ИНСТРУКЦИЯ", "МОЙ ПРОФИЛЬ"
+# ОБРАБОТКА КНОПОК СНИЗУ (ReplyKeyboard)
 # ===================================================================================
 
 @dp.message(lambda message: message.text =='Перезапустить бота')
@@ -230,6 +235,7 @@ async def user_button(message: Message):
     await user_handler(message)
 
 # ===================================================================================
+# КОМАНДА /list_developer
 # ===================================================================================
 
 @dp.message(Command('list_developer'))
@@ -260,6 +266,10 @@ async def list_handler_developer(message: Message):
 
     await message.answer(f'<b>Твои задачи:</b>\n\n{text}', parse_mode='HTML')
 
+# ===================================================================================
+# КОМАНДЫ /add, /edit, /delete
+# ===================================================================================
+
 @dp.message(Command('add'))
 async def add_handler(message: Message):
     parts = message.text.split(maxsplit=1)
@@ -275,7 +285,7 @@ async def add_handler(message: Message):
     else: 
         await message.answer('Сервер не отвечает!')
 
-@dp.message(Command('edit')) # 
+@dp.message(Command('edit'))
 async def done_handler(message: Message):
     # делим на парты
     parts = message.text.split()
@@ -322,7 +332,41 @@ async def done_handler(message: Message):
 Выберите действие: 
 ''', reply_markup=keyboard)
 
-# Обработка — через callback_query
+@dp.message(Command('delete'))
+async def delete_handler(message: Message):
+    # делим сообщение пользователя
+    parts = message.text.split()
+    # проверяем чтобы кол-во было не менее 2
+    if len(parts) < 2:
+        await message.answer("Используй: /delete id")
+        return
+    # проверка + берем айдишник сообщения (но он пока грязный)
+    try:
+        num = int(parts[1])
+    except ValueError:
+        await message.answer('Ввведи номер!')
+        return
+    # берем данные
+    user_id = message.from_user.id
+    tasks = get_tasks(user_id) # настоящие задачи пользователя (праймеры кеи настоящие)
+    if tasks is None:
+        await message.answer('Сервер не отвечает! Попробуйте позже.')
+        return
+    # проверка что корректное чилсо
+    if num < 1 or num > len(tasks):
+        await message.answer('Неправильный номер задачи.')
+        return
+
+    task_id = tasks[num - 1][0]
+    if delete_task(task_id, user_id):
+        await message.answer(f"Задача {num} удалена!")
+    else:
+        await message.answer('Сервер не отвечает.')
+
+# ===================================================================================
+# ОБРАБОТКА INLINE-КНОПОК (CallbackQuery)
+# ===================================================================================
+
 @dp.callback_query()
 async def callback_handler(callback):
     try:
@@ -367,37 +411,9 @@ async def callback_handler(callback):
         else: 
             await callback.message.answer('Сервер не отвечает.')
 
-# /delete id — бот удаляет через backend
-@dp.message(Command('delete'))
-async def delete_handler(message: Message):
-    # делим сообщение пользователя
-    parts = message.text.split()
-    # проверяем чтобы кол-во было не менее 2
-    if len(parts) < 2:
-        await message.answer("Используй: /delete id")
-        return
-    # проверка + берем айдишник сообщения (но он пока грязный)
-    try:
-        num = int(parts[1])
-    except ValueError:
-        await message.answer('Ввведи номер!')
-        return
-    # берем данные
-    user_id = message.from_user.id
-    tasks = get_tasks(user_id) # настоящие задачи пользователя (праймеры кеи настоящие)
-    if tasks is None:
-        await message.answer('Сервер не отвечает! Попробуйте позже.')
-        return
-    # проверка что корректное чилсо
-    if num < 1 or num > len(tasks):
-        await message.answer('Неправильный номер задачи.')
-        return
-
-    task_id = tasks[num - 1][0]
-    if delete_task(task_id, user_id):
-        await message.answer(f"Задача {num} удалена!")
-    else:
-        await message.answer('Сервер не отвечает.')
+# ===================================================================================
+# ОБРАБОТКА СОСТОЯНИЙ (ОЖИДАНИЕ ВВОДА ТЕКСТА)
+# ===================================================================================
 
 @dp.message()
 async def state_handler(message: Message):
@@ -419,6 +435,10 @@ async def state_handler(message: Message):
             del user_states[user_id]
             return
     await message.answer(message.text)
+
+# ===================================================================================
+# ЗАПУСК БОТА
+# ===================================================================================
 
 async def main():
     print("Бот запущен!")
