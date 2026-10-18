@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 import sqlite3
 
 app = FastAPI()
@@ -46,6 +46,9 @@ def get_tasks(user_id: int):
 # endpoint 2 — POST /tasks (создать)
 @app.post('/tasks')
 def create_task(task: str, user_id: int):
+    if not task.strip():
+        raise HTTPException(status_code=400, detail="Задача не может быть пустой")
+    
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
 

@@ -70,6 +70,8 @@ def get_tasks(user_id): #обращение к бэкенду как requests.ge
         )
         if respone.status_code == 200:
             return respone.json()
+        elif respone.status_code == 400:
+            return None
         else:
             print(f'Ошибка при запросе к backend: {respone.status_code}') # вывести в терминал
             return None
@@ -323,14 +325,18 @@ async def done_handler(message: Message):
 # Обработка — через callback_query
 @dp.callback_query()
 async def callback_handler(callback):
-    # получаем
-    data = callback.data
+    try:
+        # получаем
+        data = callback.data
 
-    # разбираем
-    parts = data.split('_') # изначальный формат 'edit_status_{task_id}'
-    action = parts[0] # "edit" или "status" в случае если был сначала "edit" и мод "статус"
-    mode = parts[1] # "text" или "status" / "1" "0"
-    task_id = int(parts[2])
+        # разбираем
+        parts = data.split('_') # изначальный формат 'edit_status_{task_id}'
+        action = parts[0] # "edit" или "status" в случае если был сначала "edit" и мод "статус"
+        mode = parts[1] # "text" или "status" / "1" "0"
+        task_id = int(parts[2])
+    except (IndexError, ValueError):
+        await callback.answer("Кнопка устарела. Начни заново.")
+        return
 
     if action == 'edit':
 
